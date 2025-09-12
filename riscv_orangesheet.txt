@@ -1,0 +1,861 @@
+==========================================================================
+RISCV Instruction Set Architecture
+==========================================================================
+# Author    : Maki Yu
+# Date      : June 11, 2025
+# Modified from Ang Li's February 19, 2018 description of RV32IM.
+# Which was modified from Christopher Batten's TinyRV description and 
+# Ji Kim's PARC description.
+
+This document provides a more detailed description of a subset of the 
+RV64I ISA used in the simulator projects for COS/ECE 375. It covers all
+the instructions to be implemented as annotated in the green sheet.
+
+ Table of Contents
+  1. RISC-V Instruction Overview
+  2. RISC-V Instruction Encoding
+     2.1. Instruction Formats
+     2.2. Immediate Formats (important)
+  3. RISC-V Instruction Details
+     3.1. Register-Register Arithmetic Instructions
+     3.2. Register-Immediate Arithmetic Instructions
+     3.3. Memory Instructions
+     3.4. Conditional Branch Instructions
+     3.5. Unconditional Jump Instructions
+
+--------------------------------------------------------------------------
+1. RISC-V ISA Overview
+--------------------------------------------------------------------------
+
+Here is a brief list of the instructions included in our subset of the
+RISC-V ISA.
+
+ - R-Type Int-Int (operates 64-bit data):
+    ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND
+ - R-Type Int-Int word version (operates 32-bit data):
+    ADDW, SUBW, SLLW, SRLW, SRAW
+ - I-Type Int-Imm:
+    ADDI, SLLI, SLTI, SLTIU, XORI, SRLI, SRAI, ORI, ANDI
+ - I-Type Int-Imm word version:
+    ADDIW, SLLIW, SRLIW, SRAIW
+ - U-Type Int-Umm:
+    LUI, AUIPC
+ - I-Type load:
+    LB, LH, LW, LD, LBU, LHU, LWU
+ - S-Type store:
+    SB, SH, SW, SD
+ - SB-Type branch:
+    BEQ, BNE, BLT, BGE, BLTU, BGEU
+ - Jump:
+    JAL (UJ-Type), JALR (I-Type)
+
+
+--------------------------------------------------------------------------
+2. RISC-V Instruction and Immediate Encoding
+--------------------------------------------------------------------------
+
+There are four instruction types and five immediate encodings in RISC-V ISA.
+Each instruction has a specific instruction type, and if that instruction
+includes an immediate, it will also have an immediate type. Fields in 
+instruction encodings have the following meanings:
+
+ - opcode    : Basic opration of the instruction
+ - funct3/7  : Additional opcode fields
+ - rd        : The destination register
+ - rs1/2     : The first and second source registers
+ - imm       : Immediate value
+
+--------------------------------------------------------------------------
+2.1. RISC-V Instruction Formats
+--------------------------------------------------------------------------
+
+* R-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | funct7     | rs2     | rs1     |funct3| rd      | opcode      |
+ +------------+---------+---------+------+---------+-------------+
+
+* I-type
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     |funct3| rd      | opcode      |
+ +----------------------+---------+------+---------+-------------+
+
+* S-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | imm        | rs2     | rs1     |funct3| imm     | opcode      |
+ +------------+---------+---------+------+---------+-------------+
+
+* U-type
+
+  31                                      11      7 6           0
+ +---------------------------------------+---------+-------------+
+ | imm                                   | rd      | opcode      |
+ +---------------------------------------+---------+-------------+
+
+--------------------------------------------------------------------------
+2.2. RISC-V Immediate Formats
+--------------------------------------------------------------------------
+
+RISC-V has an asymmetric immediate encoding which means that the
+immediates are formed by concatenating different bits in an asymmetric
+order based on the specific immediate formats. Note that in RISC-V all
+immediates are always sign extended, and the sign-bit for the immediate
+is always in bit 31 of the instruction.
+
+The following diagrams illustrate how to create a 64-bit immediate from
+each of the five immediate formats. The fields are labeled with the
+instruction bits used to construct their value. <-- n is used to indicate
+repeating bit n of the instruction to fill that field and z is used to
+indicate a bit which is always set to zero.
+
+* I-immediate
+
+  63                                        10        5 4     1  0
+ +-----------------------------------------+-----------+-------+--+
+ |                                  <-- 31 | 30:25     | 24:21 |20|
+ +-----------------------------------------+-----------+-------+--+
+
+* S-immediate
+
+  63                                        10        5 4     1  0
+ +-----------------------------------------+-----------+-------+--+
+ |                                  <-- 31 | 30:25     | 11:8  |7 |
+ +-----------------------------------------+-----------+-------+--+
+
+* B-immediate
+
+  63                                  12 11 10        5 4     1  0
+ +--------------------------------------+--+-----------+-------+--+
+ |                               <-- 31 |7 | 30:25     | 11:8  |z |
+ +--------------------------------------+--+-----------+-------+--+
+
+* U-immediate
+
+           31 30      20 19           12 11                      0
+ +-----------+----------+---------------+-------------------------+
+ |     <-- 31| 30:20    | 19:12         |                   <-- z |
+ +-----------+----------+---------------+-------------------------+
+
+* J-immediate
+
+  63                  20 19           12 11 10        5 4     1  0
+ +----------------------+---------------+--+-----------+-------+--+
+ |               <-- 31 | 19:12         |20| 30:25     | 24:21 |z |
+ +----------------------+---------------+--+-----------+-------+--+
+
+--------------------------------------------------------------------------
+3. RISC-V Instruction Details
+--------------------------------------------------------------------------
+
+For each instruction we include a brief summary, assembly syntax,
+instruction semantics, instruction and immediate encoding format, and the
+actual encoding for the instruction. We use the following conventions
+when specifying the instruction semantics:
+
+ - R[rx]      : general-purpose register (GPR) value for register rx
+ - value[a:b] : slice of bit a through bit b (inclusive) of value
+ - sext32     : sign extend to 32 bits
+ - sext64     : sign extend to 64 bits
+ - zext64     : zero extend to 64 bits
+ - M_XB[addr] : X-byte memory value at address addr
+ - PC         : current program counter
+ - <s         : signed less-than comparison
+ - >=s        : signed greater than or equal to comparison
+ - <u         : unsigned less-than comparison
+ - >=u        : unsigned greater than or equal to comparison
+ - imm        : immediate according to the immediate type
+ - >>l        : shift right logical
+ - >>a        : shift right arithmetic
+
+Unless otherwise specified assume instruction updates PC with PC+4.
+
+--------------------------------------------------------------------------
+3.1. Register-Register Arithmetic Instructions
+--------------------------------------------------------------------------
+
+* ADD
+
+ - Summary   : Addition with 3 GPRs
+ - Assembly  : add rd, rs1, rs2
+ - Semantics : R[rd] = R[rs1] + R[rs2]
+ - Format    : R-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0000000    | rs2     | rs1     | 000  | rd      | 0110011     |
+ +------------+---------+---------+------+---------+-------------+
+
+* SUB
+
+ - Summary   : Subtraction with 3 GPRs
+ - Assembly  : sub rd, rs1, rs2
+ - Semantics : R[rd] = R[rs1] - R[rs2]
+ - Format    : R-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0100000    | rs2     | rs1     | 000  | rd      | 0110011     |
+ +------------+---------+---------+------+---------+-------------+
+
+* SLL
+
+ - Summary   : Shift left logical by register value (append zeroes)
+ - Assembly  : sll rd, rs1, rs2
+ - Semantics : R[rd] = R[rs1] << R[rs2][5:0]
+ - Format    : R-type
+
+  31        25 24       20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0000000    | rs2     | rs1     | 001  | rd      | 0110011     |
+ +------------+---------+---------+------+---------+-------------+
+
+Note that the hardware should append zeros to the right as it does the
+left shift. The hardware _must_ only use the bottom SIX bits of R[rs2]
+when performing the shift.
+
+* SLT
+
+ - Summary   : Record result of signed less-than comparison with 2 GPRs
+ - Assembly  : slt rd, rs1, rs2
+ - Semantics : R[rd] = ( R[rs1] <s R[rs2] )
+ - Format    : R-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0000000    | rs2     | rs1     | 010  | rd      | 0110011     |
+ +------------+---------+---------+------+---------+-------------+
+
+This instruction uses a _signed_ comparison.
+
+* SLTU
+
+ - Summary   : Record result of unsigned less-than comparison with 2 GPRs
+ - Assembly  : sltu rd, rs1, rs2
+ - Semantics : R[rd] = ( R[rs1] <u R[rs2] )
+ - Format    : R-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0000000    | rs2     | rs1     | 011  | rd      | 0110011     |
+ +------------+---------+---------+------+---------+-------------+
+
+This instruction uses an _unsigned_ comparison.
+
+* XOR
+
+ - Summary   : Bitwise logical XOR with 3 GPRs
+ - Assembly  : xor rd, rs1, rs2
+ - Semantics : R[rd] = R[rs1] ^ R[rs2]
+ - Format    : R-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0000000    | rs2     | rs1     | 100  | rd      | 0110011     |
+ +------------+---------+---------+------+---------+-------------+
+
+* SRL
+
+ - Summary   : Shift right logical by register value (append zeroes)
+ - Assembly  : srl rd, rs1, rs2
+ - Semantics : R[rd] = R[rs1] >>l R[rs2][5:0]
+ - Format    : R-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0000000    | rs2     | rs1     | 101  | rd      | 0110011     |
+ +------------+---------+---------+------+---------+-------------+
+
+Note that the hardware should append zeros to the left as it does the
+right shift. The hardware _must_ only use the bottom SIX bits of R[rs2]
+when performing the shift.
+
+* SRA
+
+ - Summary   : Shift right arithmetic by register value (sign-extend)
+ - Assembly  : sra rd, rs1, rs2
+ - Semantics : R[rd] = R[rs1] >>a R[rs2][5:0]
+ - Format    : R-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0100000    | rs2     | rs1     | 101  | rd      | 0110011     |
+ +------------+---------+---------+------+---------+-------------+
+
+Note that the hardware should ensure that the sign-bit of R[rs1] is
+extended to the left as it does the right shift. The hardware _must_
+only use the bottom SIX bits of R[rs2] when performing the shift.
+
+* OR
+
+ - Summary   : Bitwise logical OR with 3 GPRs
+ - Assembly  : or rd, rs1, rs2
+ - Semantics : R[rd] = R[rs1] | R[rs2]
+ - Format    : R-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0000000    | rs2     | rs1     | 110  | rd      | 0110011     |
+ +------------+---------+---------+------+---------+-------------+
+
+* AND
+
+ - Summary   : Bitwise logical AND with 3 GPRs
+ - Assembly  : and rd, rs1, rs2
+ - Semantics : R[rd] = R[rs1] & R[rs2]
+ - Format    : R-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0000000    | rs2     | rs1     | 111  | rd      | 0110011     |
+ +------------+---------+---------+------+---------+-------------+
+
+* ADDW
+
+ - Summary   : Addition with 3 GPRs
+ - Assembly  : addw rd, rs1, rs2
+ - Semantics : R[rd] = sext64(R[rs1][31:0] + R[rs2][31:0])
+ - Format    : R-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0000000    | rs2     | rs1     | 000  | rd      | 0111011     |
+ +------------+---------+---------+------+---------+-------------+
+
+Operates on the lower 32-bit of register values. Overflows are ignored.
+The 32-bit result is then sign-extended to 64-bits and written to
+the destination register.
+
+* SUBW
+
+ - Summary   : Subtraction with 3 GPRs
+ - Assembly  : subw rd, rs1, rs2
+ - Semantics : R[rd] = sext64(R[rs1][31:0] - R[rs2][31:0])
+ - Format    : R-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0100000    | rs2     | rs1     | 000  | rd      | 0111011     |
+ +------------+---------+---------+------+---------+-------------+
+
+Operates on the lower 32-bit of register values. Overflows are ignored.
+The 32-bit result is then sign-extended to 64-bits and written to
+the destination register.
+
+* SLLW (important)
+
+ - Summary   : Shift left logical by register value (append zeroes)
+ - Assembly  : sllw rd, rs1, rs2
+ - Semantics : R[rd] = sext64(R[rs1][31:0] << R[rs2][4:0])
+ - Format    : R-type
+
+  31        25 24       20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0000000    | rs2     | rs1     | 001  | rd      | 0111011     |
+ +------------+---------+---------+------+---------+-------------+
+
+Note that the hardware should append zeros to the right as it does the
+left shift. The hardware _must_ only use the bottom FIVE bits of R[rs2]
+when performing the shift. Operates on 32-bit values and sign-extended
+32-bit results to 64 bits.
+
+* SRLW (important)
+
+ - Summary   : Shift right logical by register value (append zeroes)
+ - Assembly  : srlw rd, rs1, rs2
+ - Semantics : R[rd] = sext64(R[rs1][31:0] >>l R[rs2][4:0])
+ - Format    : R-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0000000    | rs2     | rs1     | 101  | rd      | 0111011     |
+ +------------+---------+---------+------+---------+-------------+
+
+Note that the hardware should append zeros to the left as it does the
+right shift. The hardware _must_ only use the bottom FIVE bits of R[rs2]
+when performing the shift. Operates on 32-bit values and sign-extended
+32-bit results to 64 bits.
+
+* SRAW (important)
+
+ - Summary   : Shift right arithmetic by register value (sign-extend)
+ - Assembly  : sraw rd, rs1, rs2
+ - Semantics : R[rd] = sext64(R[rs1][31:0] >>a R[rs2][4:0])
+ - Format    : R-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0100000    | rs2     | rs1     | 101  | rd      | 0111011     |
+ +------------+---------+---------+------+---------+-------------+
+
+Note that the hardware should ensure that the sign-bit of R[rs1] is
+extended to the left as it does the right shift. The hardware _must_
+only use the bottom FIVE bits of R[rs2] when performing the shift.
+Operates on 32-bit values and sign-extended 32-bit results to 64 bits.
+
+--------------------------------------------------------------------------
+3.2. Register-Immediate Arithmetic Instructions
+--------------------------------------------------------------------------
+
+* ADDI
+
+ - Summary   : Add constant
+ - Assembly  : addi rd, rs1, imm
+ - Semantics : R[rd] = R[rs1] + sext64(imm)
+ - Format    : I-type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 000  | rd      | 0010011     |
+ +----------------------+---------+------+---------+-------------+
+
+* SLLI (important)
+
+ - Summary   : Shift left logical constant (append zeroes)
+ - Assembly  : slli rd, rs1, imm
+ - Semantics : R[rd] = R[rs1] << imm
+ - Format    : I-type, I-immediate
+
+  31      26 25       20 19     15 14  12 11      7 6           0
+ +----------+-----------+---------+------+---------+-------------+
+ | 000000   | imm       | rs1     | 001  | rd      | 0010011     |
+ +----------+-----------+---------+------+---------+-------------+
+
+Note that the hardware should append zeros to the right as it does the
+left shift. Note that it takes a SIX-bit immediate value.
+
+* SLTI
+
+ - Summary   : Set GPR if source GPR < constant, signed comparison
+ - Assembly  : slti rd, rs1, imm
+ - Semantics : R[rd] = ( R[rs1] <s sext64(imm) )
+ - Format    : I-type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 010  | rd      | 0010011     |
+ +----------------------+---------+------+---------+-------------+
+
+* SLTIU
+
+ - Summary   : Set GPR if source GPR is < constant, unsigned comparison
+ - Assembly  : sltiu rd, rs1, imm
+ - Semantics : R[rd] = ( R[rs1] <u sext64(imm) )
+ - Format    : I-type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 011  | rd      | 0010011     |
+ +----------------------+---------+------+---------+-------------+
+
+* XORI
+
+ - Summary   : Bitwise logical XOR with constant
+ - Assembly  : xori rd, rs1, imm
+ - Semantics : R[rd] = R[rs1] ^ sext64(imm)
+ - Format    : I-type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 100  | rd      | 0010011     |
+ +----------------------+---------+------+---------+-------------+
+
+* SRLI (important)
+
+ - Summary   : Shift right logical by constant (append zeroes)
+ - Assembly  : srli rd, rs1, imm
+ - Semantics : R[rd] = R[rs1] >>l imm
+ - Format    : I-type
+
+  31      26 25       20 19     15 14  12 11      7 6           0
+ +----------+-----------+---------+------+---------+-------------+
+ | 000000   | imm       | rs1     | 101  | rd      | 0010011     |
+ +----------+-----------+---------+------+---------+-------------+
+
+Note that the hardware should append zeros to the left as it does the
+right shift. Note that it takes a SIX-bit immediate value.
+
+* SRAI (important)
+
+ - Summary   : Shift right arithmetic by constant (sign-extend)
+ - Assembly  : srai rd, rs1, imm
+ - Semantics : R[rd] = R[rs1] >>a imm
+ - Format    : I-type
+
+  31      26 25       20 19     15 14  12 11      7 6           0
+ +----------+-----------+---------+------+---------+-------------+
+ | 010000   | imm       | rs1     | 101  | rd      | 0010011     |
+ +----------+-----------+---------+------+---------+-------------+
+
+Note that the hardware should ensure that the sign-bit of R[rs1] is
+extended to the left as it does the right shift. Note that it takes
+a SIX-bit immediate value. The pattern in the upper SIX instead of
+SEVEN bits distinguishes SRLI and SRAI.
+
+* ORI
+
+ - Summary   : Bitwise logical OR with constant
+ - Assembly  : ori rd, rs1, imm
+ - Semantics : R[rd] = R[rs1] | sext64(imm)
+ - Format    : I-type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 110  | rd      | 0010011     |
+ +----------------------+---------+------+---------+-------------+
+
+* ANDI
+
+ - Summary   : Bitwise logical AND with constant
+ - Assembly  : andi rd, rs1, imm
+ - Semantics : R[rd] = R[rs1] & sext64(imm)
+ - Format    : I-type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 111  | rd      | 0010011     |
+ +----------------------+---------+------+---------+-------------+
+
+* ADDIW
+
+ - Summary   : Add constant
+ - Assembly  : addiw rd, rs1, imm
+ - Semantics : R[rd] = sext64(R[rs1][31:0] + sext32(imm))
+ - Format    : I-type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 000  | rd      | 0011011     |
+ +----------------------+---------+------+---------+-------------+
+
+* SLLIW (important)
+
+ - Summary   : Shift left logical constant (append zeroes)
+ - Assembly  : slliw rd, rs1, imm
+ - Semantics : R[rd] = sext64(R[rs1][31:0] << imm)
+ - Format    : I-type, I-immediate
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0000000    | imm     | rs1     | 001  | rd      | 0011011     |
+ +------------+---------+---------+------+---------+-------------+
+
+Note that the hardware should append zeros to the right as it does the
+left shift. Note that it takes a SIX-bit immediate value.
+
+* SRLIW (important)
+
+ - Summary   : Shift right logical by constant (append zeroes)
+ - Assembly  : srliw rd, rs1, imm
+ - Semantics : R[rd] = sext64(R[rs1][31:0] >>l imm)
+ - Format    : I-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0000000    | imm     | rs1     | 101  | rd      | 0011011     |
+ +------------+---------+---------+------+---------+-------------+
+
+Note that the hardware should append zeros to the left as it does the
+right shift. Note that it takes a FIVE-bit immediate value.
+
+* SRAIW (important)
+
+ - Summary   : Shift right arithmetic by constant (sign-extend)
+ - Assembly  : sraiw rd, rs1, imm
+ - Semantics : R[rd] = sext64(R[rs1][31:0] >>a imm)
+ - Format    : I-type
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | 0100000    | imm     | rs1     | 101  | rd      | 0011011     |
+ +------------+---------+---------+------+---------+-------------+
+
+Note that the hardware should ensure that the sign-bit of R[rs1] is
+extended to the left as it does the right shift. Note that it takes
+a FIVE-bit immediate value.
+
+* LUI
+
+ - Summary   : Load constant into upper bits of word
+ - Assembly  : lui rd, imm
+ - Semantics : R[rd] = sext64(imm << 12)
+ - Format    : U-type, U-immediate
+
+  31                                      11      7 6           0
+ +---------------------------------------+---------+-------------+
+ | imm                                   | rd      | 0110111     |
+ +---------------------------------------+---------+-------------+
+
+Note that imm is shifted then sign extended to 64 bits.
+
+* AUIPC
+
+ - Summary   : Load PC + constant into upper bits of word
+ - Assembly  : auipc rd, imm
+ - Semantics : R[rd] = PC + sext64(imm << 12)
+ - Format    : U-type, U-immediate
+
+  31                                      11      7 6           0
+ +---------------------------------------+---------+-------------+
+ | imm                                   | rd      | 0010111     |
+ +---------------------------------------+---------+-------------+
+
+Note that imm is shifted then sign extended to 64 bits.
+
+--------------------------------------------------------------------------
+3.3. Memory Instructions
+--------------------------------------------------------------------------
+
+* LB
+
+ - Summary   : Load a byte then sign-extend to 64 bit
+ - Assembly  : lb rd, imm(rs1)
+ - Semantics : R[rd] = sext64( M_1B[ R[rs1] + sext64(imm) ] )
+ - Format    : I-type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 000  | rd      | 0000011     |
+ +----------------------+---------+------+---------+-------------+
+
+* LH
+
+ - Summary   : Load a half-word then sign-extend to 64 bit
+ - Assembly  : lh rd, imm(rs1)
+ - Semantics : R[rd] = sext64( M_2B[ R[rs1] + sext64(imm) ] )
+ - Format    : I-type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 001  | rd      | 0000011     |
+ +----------------------+---------+------+---------+-------------+
+
+* LW
+
+ - Summary   : Load word from memory then sign-extend to 64 bit
+ - Assembly  : lw rd, imm(rs1)
+ - Semantics : R[rd] = sext64( M_4B[ R[rs1] + sext64(imm) ] )
+ - Format    : I-type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 010  | rd      | 0000011     |
+ +----------------------+---------+------+---------+-------------+
+
+* LD
+
+ - Summary   : Load double word from memory
+ - Assembly  : ld rd, imm(rs1)
+ - Semantics : R[rd] = M_8B[ R[rs1] + sext64(imm) ]
+ - Format    : I-type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 011  | rd      | 0000011     |
+ +----------------------+---------+------+---------+-------------+
+
+* LBU
+
+ - Summary   : Load a byte then zero-extend to 64 bit
+ - Assembly  : lbu rd, imm(rs1)
+ - Semantics : R[rd] = zext64( M_1B[ R[rs1] + sext64(imm) ] )
+ - Format    : I-type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 100  | rd      | 0000011     |
+ +----------------------+---------+------+---------+-------------+
+
+* LHU
+
+ - Summary   : Load a half-word then zero-extend to 64 bit
+ - Assembly  : lhu rd, imm(rs1)
+ - Semantics : R[rd] = zext64( M_2B[ R[rs1] + sext64(imm) ] )
+ - Format    : I-type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 101  | rd      | 0000011     |
+ +----------------------+---------+------+---------+-------------+
+
+* LWU
+
+ - Summary   : Load a word then zero-extend to 64 bit
+ - Assembly  : lwu rd, imm(rs1)
+ - Semantics : R[rd] = zext64( M_4B[ R[rs1] + sext64(imm) ] )
+ - Format    : I-type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 110  | rd      | 0000011     |
+ +----------------------+---------+------+---------+-------------+
+
+* SB
+
+ - Summary   : Store the least significant byte in a GPR into memory
+ - Assembly  : sb rs2, imm(rs1)
+ - Semantics : M_1B[ R[rs1] + sext64(imm) ] = R[rs2][7:0]
+ - Format    : S-type, S-immediate
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | imm        | rs2     | rs1     | 000  | imm     | 0100011     |
+ +------------+---------+---------+------+---------+-------------+
+
+* SH
+
+ - Summary   : Store the lower half-word in a GPR into memory
+ - Assembly  : sh rs2, imm(rs1)
+ - Semantics : M_2B[ R[rs1] + sext64(imm) ] = R[rs2][15:0]
+ - Format    : S-type, S-immediate
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | imm        | rs2     | rs1     | 001  | imm     | 0100011     |
+ +------------+---------+---------+------+---------+-------------+
+
+* SW
+
+ - Summary   : Store word into memory
+ - Assembly  : sw rs2, imm(rs1)
+ - Semantics : M_4B[ R[rs1] + sext64(imm) ] = R[rs2][31:0]
+ - Format    : S-type, S-immediate
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | imm        | rs2     | rs1     | 010  | imm     | 0100011     |
+ +------------+---------+---------+------+---------+-------------+
+
+* SD
+
+ - Summary   : Store double word into memory
+ - Assembly  : sd rs2, imm(rs1)
+ - Semantics : M_8B[ R[rs1] + sext64(imm) ] = R[rs2]
+ - Format    : S-type, S-immediate
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | imm        | rs2     | rs1     | 011  | imm     | 0100011     |
+ +------------+---------+---------+------+---------+-------------+
+
+--------------------------------------------------------------------------
+3.4. Conditional Branch Instructions
+--------------------------------------------------------------------------
+
+* BEQ
+
+ - Summary   : Branch if 2 GPRs are equal
+ - Assembly  : beq rs1, rs2, imm
+ - Semantics : PC = ( R[rs1] == R[rs2] ) ? PC + sext64(imm) : PC + 4
+ - Format    : S-type, B-immediate
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | imm        | rs2     | rs1     | 000  | imm     | 1100011     |
+ +------------+---------+---------+------+---------+-------------+
+
+* BNE
+
+ - Summary   : Branch if 2 GPRs are not equal
+ - Assembly  : bne rs1, rs2, imm
+ - Semantics : PC = ( R[rs1] != R[rs2] ) ? PC + sext64(imm) : PC + 4
+ - Format    : S-type, B-immediate
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | imm        | rs2     | rs1     | 001  | imm     | 1100011     |
+ +------------+---------+---------+------+---------+-------------+
+
+* BLT
+
+ - Summary   : Branch based on signed comparison of two GPRs
+ - Assembly  : blt rs1, rs2, imm
+ - Semantics : PC = ( R[rs1] <s R[rs2] ) ? PC + sext64(imm) : PC + 4
+ - Format    : S-type, B-immediate
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | imm        | rs2     | rs1     | 100  | imm     | 1100011     |
+ +------------+---------+---------+------+---------+-------------+
+
+This instruction uses a _signed_ comparison.
+
+* BGE
+
+ - Summary   : Branch based on signed comparison of two GPRs
+ - Assembly  : bge rs1, rs2, imm
+ - Semantics : PC = ( R[rs1] >=s R[rs2] ) ? PC + sext64(imm) : PC + 4
+ - Format    : S-type, B-immediate
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | imm        | rs2     | rs1     | 101  | imm     | 1100011     |
+ +------------+---------+---------+------+---------+-------------+
+
+This instruction uses a _signed_ comparison.
+
+* BLTU
+
+ - Summary   : Branch based on unsigned comparison of two GPRs
+ - Assembly  : bltu rs1, rs2, imm
+ - Semantics : PC = ( R[rs1] <u R[rs2] ) ? PC + sext64(imm) : PC + 4
+ - Format    : S-type, B-immediate
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | imm        | rs2     | rs1     | 110  | imm     | 1100011     |
+ +------------+---------+---------+------+---------+-------------+
+
+This instruction uses an _unsigned_ comparison.
+
+* BGEU
+
+ - Summary   : Branch based on unsigned comparison of two GPRs
+ - Assembly  : bgeu rs1, rs2, imm
+ - Semantics : PC = ( R[rs1] >=u R[rs2] ) ? PC + sext64(imm) : PC + 4
+ - Format    : S-type, B-immediate
+
+  31        25 24     20 19     15 14  12 11      7 6           0
+ +------------+---------+---------+------+---------+-------------+
+ | imm        | rs2     | rs1     | 111  | imm     | 1100011     |
+ +------------+---------+---------+------+---------+-------------+
+
+This instruction uses an _unsigned_ comparison.
+
+--------------------------------------------------------------------------
+3.5. Unconditional Jump Instructions
+--------------------------------------------------------------------------
+
+* JAL
+
+ - Summary   : Jump to address and place return address in GPR
+ - Assembly  : jal rd, imm
+ - Semantics : R[rd] = PC + 4; PC = PC + sext64(imm)
+ - Format    : U-type, J-immediate
+
+  31                                      11      7 6           0
+ +---------------------------------------+---------+-------------+
+ | imm                                   | rd      | 1101111     |
+ +---------------------------------------+---------+-------------+
+
+* JALR (important)
+
+ - Summary   : Jump to address and place return address in GPR
+ - Assembly  : jalr rd, rs1, imm
+ - Semantics : R[rd] = PC + 4; PC = ( R[rs1] + sext64(imm) ) & ~1
+ - Format    : I-Type, I-immediate
+
+  31                  20 19     15 14  12 11      7 6           0
+ +----------------------+---------+------+---------+-------------+
+ | imm                  | rs1     | 000  | rd      | 1100111     |
+ +----------------------+---------+------+---------+-------------+
+
+Note that the target address is obtained by adding the 12-bit signed
+I-immediate to the value in register rs1, then setting the
+least-significant bit of the result to zero (& ~1). In other words,
+the JALR instruction ignores the lowest bit of the calculated
+target address.
