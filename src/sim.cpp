@@ -70,6 +70,9 @@ Instruction simDecode(Instruction inst) {
     inst.funct3 = inst.instruction >> 12 & 0b111;
     inst.rd = inst.instruction >> 7 & 0b11111;
     inst.rs1 = inst.instruction >> 15 & 0b11111;
+    inst.rs2 = inst.instruction >> 20 & 0b11111;
+    inst.funct7 = inst.instruction >> 25 & 0b1111111;
+
 
     if (inst.instruction == 0xfeedfeed) {
         inst.isHalt = true;
@@ -82,16 +85,108 @@ Instruction simDecode(Instruction inst) {
     inst.isLegal = true; // assume legal unless proven otherwise
 
     switch (inst.opcode) {
-        case OP_INTIMM:
-            if (inst.funct3 == FUNCT3_ADD) {
-                inst.doesArithLogic = true;
-                inst.writesRd = true;
-                inst.readsRs1 = true;
-                inst.readsRs2 = false;
-            } else {
-                inst.isLegal = false;
+        case OP_INTIMM: {
+            // flags for all OP_INTIMM
+            inst.doesArithLogic = true;
+            inst.writesRd = true;
+            inst.readsRs1 = true;
+            inst.readsRs2 = false;
+        
+            switch (inst.funct3) {
+                case FUNCT3_ADD:    break;
+                case FUNCT3_SLT:    break;
+                case FUNCT3_SLTU:   break;
+                case FUNCT3_XOR:    break;
+                case FUNCT3_OR:     break;
+                case FUNCT3_AND:    break;
+
+                case FUNCT3_SLL:
+                    if (inst.funct7 != FUNCT7_ADD) inst.isLegal = false;
+                    break;
+
+                case FUNCT3_SRL:   /* srli / srai */
+                    if (inst.funct7 == FUNCT7_ADD) { /* srli */ }
+                    else if (inst.funct7 == FUNCT7_SUB) { /* srai */ }
+                    else inst.isLegal = false;
+                    break;
+
+                default: inst.isLegal = false;
             }
             break;
+        }
+
+        //  R-type ALU (add, sub, sll, slt, sltu, xor, srl, sra, or, and)
+        case OP_RTYPE: {
+            inst.doesArithLogic = true;
+            inst.writesRd = true;
+            inst.readsRs1 = true;
+            inst.readsRs2 = true;
+
+            switch (inst.funct3) {
+                case FUNCT3_ADD:
+                    if      (inst.funct7 == FUNCT7_ADD) { /* add */ }
+                    else if (inst.funct7 == FUNCT7_SUB) { /* sub */ }
+                    else inst.isLegal = false;
+                    break;
+
+                case FUNCT3_SLL:  if (inst.funct7 != FUNCT7_ADD) inst.isLegal = false; break; // sll
+                case FUNCT3_SLT:  if (inst.funct7 != FUNCT7_ADD) inst.isLegal = false; break; // slt
+                case FUNCT3_SLTU: if (inst.funct7 != FUNCT7_ADD) inst.isLegal = false; break; // sltu
+                case FUNCT3_XOR:  if (inst.funct7 != FUNCT7_ADD) inst.isLegal = false; break; // xor
+                case FUNCT3_SRL:
+                    if      (inst.funct7 == FUNCT7_ADD) { /* srl */ }
+                    else if (inst.funct7 == FUNCT7_SUB) { /* sra */ }
+                    else inst.isLegal = false;
+                    break;
+
+                case FUNCT3_OR:   if (inst.funct7 != FUNCT7_ADD) inst.isLegal = false; break; // or
+                case FUNCT3_AND:  if (inst.funct7 != FUNCT7_ADD) inst.isLegal = false; break; // and
+                default: inst.isLegal = false;
+            }
+            break;
+        }
+
+        // Loads (lb, lh, lw, ld, lbu, lhu, lwu)
+        case OP_LOAD:
+            inst.readsRs1 = true;
+            inst.writesRd = true;
+            inst.readsMem = true;
+            break;
+
+        // Stores (sb, sh, sw, sd)
+        case OP_STORE:
+            inst.readsRs1 = true;
+            inst.readsRs2 = true;
+            inst.writesMem = true;
+            break;
+
+        // Branches (beq, bne, blt, bge, bltu, bgeu)
+        case OP_BRANCH:
+            inst.readsRs1 = true;
+            inst.readsRs2 = true;
+            break;
+
+        // Jumps
+        case OP_JAL:
+            inst.writesRd = true;
+            break;
+
+        case OP_JALR:
+            inst.readsRs1 = true;
+            inst.writesRd = true;
+            break;
+
+        // U-type
+        case OP_LUI:
+            inst.doesArithLogic = true;
+            inst.writesRd = true;
+            break;
+
+        case OP_AUIPC:
+            inst.doesArithLogic = true;
+            inst.writesRd = true;
+            break;
+
         default:
             inst.isLegal = false;
     }
