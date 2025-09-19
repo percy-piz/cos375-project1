@@ -195,9 +195,10 @@ Instruction simDecode(Instruction inst) {
 
 // Collect reg operands for arith or addr gen
 Instruction simOperandCollection(Instruction inst, REGS regData) {
-    
-    inst.op1Val = regData.registers[inst.rs1];
-
+    if (inst.readsRs1)
+        inst.op1Val = regData.registers[inst.rs1]; // Read rs1 if needed
+    if (inst.readsRs2)
+        inst.op2Val = regData.registers[inst.rs2]; // Read rs2 if needed
     return inst;
 }
 
