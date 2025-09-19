@@ -530,43 +530,43 @@ Instruction simMemAccess(Instruction inst, MemoryStore *myMem) {
             case FUNCT3_LB: {   // signed 8-bit
                 uint8_t v = 0;
                 myMem->getMemValue(addr, v, BYTE_SIZE);
-                inst.loadResult = (uint64_t)(int64_t)(int8_t)v;
+                inst.memResultesult = (uint64_t)(int64_t)(int8_t)v;
                 break;
             }
             case FUNCT3_LH: {   // signed 16-bit
                 uint16_t v = 0;
                 myMem->getMemValue(addr, v, HALF_SIZE);
-                inst.loadResult = (uint64_t)(int64_t)(int16_t)v;
+                inst.memResultesult = (uint64_t)(int64_t)(int16_t)v;
                 break;
             }
             case FUNCT3_LW: {   // signed 32-bit
                 uint32_t v = 0;
                 myMem->getMemValue(addr, v, WORD_SIZE);
-                inst.loadResult = (uint64_t)(int64_t)(int32_t)v;
+                inst.memResultesult = (uint64_t)(int64_t)(int32_t)v;
                 break;
             }
             case FUNCT3_LD: {   // 64-bit
                 uint64_t v = 0;
                 myMem->getMemValue(addr, v, DWORD_SIZE);
-                inst.loadResult = v;
+                inst.memResultesult = v;
                 break;
             }
             case FUNCT3_LBU: {  // zero-extend 8-bit
                 uint8_t v = 0;
                 myMem->getMemValue(addr, v, BYTE_SIZE);
-                inst.loadResult = (uint64_t)v;
+                inst.memResultesult = (uint64_t)v;
                 break;
             }
             case FUNCT3_LHU: {  // zero-extend 16-bit
                 uint16_t v = 0;
                 myMem->getMemValue(addr, v, HALF_SIZE);
-                inst.loadResult = (uint64_t)v;
+                inst.memResultesult = (uint64_t)v;
                 break;
             }
             case FUNCT3_LWU: {  // zero-extend 32-bit (RV64)
                 uint32_t v = 0;
                 myMem->getMemValue(addr, v, WORD_SIZE);
-                inst.loadResult = (uint64_t)v;
+                inst.memResultesult = (uint64_t)v;
                 break;
             }
             default:
@@ -620,7 +620,7 @@ Instruction simCommit(Instruction inst, REGS &regData) {
     if (inst.writesRd) {
         switch (inst.opcode) {
             case OP_LOAD:
-                value = inst.loadResult;
+                value = inst.memResultesult;
                 doWrite = true;
                 break;
 

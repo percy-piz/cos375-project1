@@ -31,12 +31,14 @@ enum OPCODES {
     OP_INTIMM  = 0b0010011, // Integer ALU immediate instructions addi, slli, slti, sltiu, xori, srli, srai, ori, andi
     OP_LOAD = 0b0000011, // Load instructions lb, lh, lw, ld, lbu, lhu, lwu
     OP_JALR = 0b1100111,  // jalr
+    OP_INTIMM_32 = 0b0011011, // addiw, slliw, srliw, sraiw
 
     // S-type opcode
     OP_STORE = 0b0100011, // Store instructions sb, sh, sw, sd
 
     // R-type opcodes
     OP_RTYPE = 0b0110011, // Register intstructions add, sub, sll, slt, sltu, xor, srl, sra, or, and
+    OP_RTYPE_32 = 0b0111011, // addw, subw, sllw, srlw, sraw
 
     // SB-type opcodes
     OP_BRANCH = 0b1100011, // Branch instructions beq, bne, blt, bge, bltu, bgeu
